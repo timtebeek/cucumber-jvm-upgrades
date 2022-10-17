@@ -1,0 +1,408 @@
+= Automate Cucumber-JVM upgrades with OpenRewrite
+
+Getting involved in Open Source software can be fun, as it gives you a glimpse into the future for upcoming versions.
+One project I've been following over the past couple of years is https://github.com/cucumber/cucumber-jvm[Cucumber for the Java Virtual Machine].
+There's a noticable https://github.com/cucumber/cucumber-jvm/issues/2174[upcoming change that will remove `cucumber-java8`],
+which will certainly affect users of that dependency.
+
+Some work has been put into a https://github.com/cucumber/cucumber-jvm/issues/2279[possible replacement in the form of `cucumber-java-lambda`],
+but in the meantime users are https://github.com/cucumber/docs/pull/783[recommended not to use `cucumber-java8` anymore].
+Such breaking changes are typically a source of work or even problems for users, and can lead to delayed adoption or even fragmentation. 
+
+At a recent client we also faced this challenge of having to migrate ~20 projects from `cucumber-java8` lambda based step definitions to `cucumber-java` annotation based step definitions.
+Migrating these step definitions by hand did not seem very appealing, and error prone at best.
+As I recently gained some experience developing https://docs.openrewrite.org/[OpenRewrite recipes], I instead set out to automate this migration to Cucumber 7.x and beyond for all users of `cucumber-java8`.
+
+== Example project
+
+Let's start with defining an example project, which we will use to highlight the changes made through our automated migration recipes.
+
+To start we have a `pom.xml` file, using Maven 3.8.6, Java 17, Spring Boot 2.7.4, JUnit 5.9.1 and Cucumber-JVM 7.8.1.
+
+.pom.xml
+[source,xml]
+----
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<parent>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-starter-parent</artifactId>
+		<version>2.7.4</version>
+		<relativePath /> <!-- lookup parent from repository -->
+	</parent>
+	<groupId>com.github.timtebeek</groupId>
+	<artifactId>migrate-cucumber-jvm</artifactId>
+	<version>0.0.1-SNAPSHOT</version>
+	<properties>
+		<java.version>17</java.version>
+		<junit-jupiter.version>5.9.1</junit-jupiter.version>
+	</properties>
+	<dependencies>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>io.cucumber</groupId>
+			<artifactId>cucumber-java8</artifactId>
+			<version>7.8.1</version>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>io.cucumber</groupId>
+			<artifactId>cucumber-junit-platform-engine</artifactId>
+			<version>7.8.1</version>
+			<scope>test</scope>
+		</dependency>
+	</dependencies>
+</project>
+----
+
+Next we have a very simple calculator class, taken from the https://github.com/cucumber/cucumber-jvm/blob/main/examples/calculator-java8-cli/src/main/java/io/cucumber/examples/calculator/RpnCalculator.java#L14[Cucumber-JVM examples repository].
+
+.src/main/java/io/cucumber/examples/calculator/RpnCalculator.java
+[source,java]
+----
+package io.cucumber.examples.calculator;
+
+import java.util.Deque;
+import java.util.LinkedList;
+import java.util.List;
+
+public class RpnCalculator {
+
+	private static final List<String> OPS = List.of("-", "+", "*", "/");
+	private final Deque<Number> stack = new LinkedList<>();
+
+	public void push(Object arg) {
+		if (OPS.contains(arg)) {
+			Number y = stack.removeLast();
+			Number x = stack.isEmpty() ? 0 : stack.removeLast();
+			Double val = null;
+			if (arg.equals("-")) {
+				val = x.doubleValue() - y.doubleValue();
+			} else if (arg.equals("+")) {
+				val = x.doubleValue() + y.doubleValue();
+			} else if (arg.equals("*")) {
+				val = x.doubleValue() * y.doubleValue();
+			} else if (arg.equals("/")) {
+				val = x.doubleValue() / y.doubleValue();
+			}
+			push(val);
+		} else {
+			stack.add((Number) arg);
+		}
+	}
+
+	public Number value() {
+		return stack.getLast();
+	}
+
+}
+----
+
+We configure Cucumber-JVM through https://junit.org/junit5/docs/current/user-guide/#running-tests-config-params[JUnit Platform properties].
+
+.src/test/resources/junit-platform.properties
+[source,properties]
+----
+cucumber.publish.quiet=true
+cucumber.plugin=html:target/results.html,message:target/results.ndjson
+cucumber.glue=io.cucumber.examples.calculator
+----
+
+Our cucumber tests are defined in a feature file.
+
+.src/test/resources/io/cucumber/examples/calculator/rnpcalculator.feature
+[source,cucumber]
+----
+@foo
+Feature: Basic Arithmetic
+
+  Background: A Calculator
+    Given a calculator I just turned on
+
+  Scenario: Addition
+  # Try to change one of the values below to provoke a failure
+    When I add 4 and 5
+    Then the result is 9
+
+  Scenario: Another Addition
+  # Try to change one of the values below to provoke a failure
+    When I add 4 and 7
+    Then the result is 11
+----
+
+With the step definition bindings in `RpnCalculatorSteps.java`.
+
+.src/test/java/io/cucumber/examples/calculator/RpnCalculatorSteps.java
+[source,java]
+----
+package io.cucumber.examples.calculator;
+
+import io.cucumber.java8.En;
+import io.cucumber.java8.Scenario;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+public class RpnCalculatorSteps implements En {
+
+	private RpnCalculator calc;
+
+	public RpnCalculatorSteps() {
+		Given("^a calculator I just turned on$", () -> {
+			calc = new RpnCalculator();
+		});
+
+		When("I add {int} and {int}", (Integer arg1, Integer arg2) -> {
+			calc.push(arg1);
+			calc.push(arg2);
+			calc.push("+");
+		});
+
+		Then("the result is {double}", (Double expected) -> assertThat(calc.value()).isEqualTo(expected));
+
+		Before("not @foo", (Scenario scenario) -> {
+			scenario.log("Runs before scenarios *not* tagged with @foo");
+		});
+
+		After((Scenario scenario) -> scenario.log("After all"));
+
+	}
+
+}
+----
+
+Which we run through `RunCucumberTest.java`.
+
+.src/test/java/io/cucumber/examples/calculator/RunCucumberTest.java
+[source,java]
+----
+package io.cucumber.examples.calculator;
+
+import io.cucumber.junit.platform.engine.Cucumber;
+
+@Cucumber // TODO Deprecated for removal
+public class RunCucumberTest {
+}
+----
+
+This all works; when we run `RunCucumberTest`, it discovers the tests in `rnpcalculator.feature`; executes the relevant steps in `RpnCalculatorSteps`, and produces the results into the configured `target/results.html`.
+
+== Run Migration Recipes
+
+As we said in our outline, we want to migrate away from the `cucumber-java8` lambda based step definitions; towards the `cucumber-java` annotation based step definitions.
+To facilitate this migration I've developed https://github.com/openrewrite/rewrite-testing-frameworks/blob/main/src/main/resources/META-INF/rewrite/cucumber.yml#L18[a number of OpenRewrite Cucumber migration recipes].
+
+
+As we're still https://github.com/openrewrite/rewrite-testing-frameworks/compare/v1.29.0...main[waiting on a 1.30.0+ release], we first need to install the rewrite-testing-frameworks module locally.
+
+.Install the rewrite-testing-frameworks module locally.
+[source,bash]
+----
+git clone git@github.com:openrewrite/rewrite-testing-frameworks.git;
+cd rewrite-testing-frameworks;
+./gradlew publishToMavenLocal;
+----
+
+To run the migration recipes we then need to add the OpenRewrite plugin to our project `pom.xml` file, with the respective module dependency, before running the plugin itself.
+
+.Run the cucumber-jvm migration recipes.
+[source,bash]
+----
+cd migrate-cucumber-jvm/;
+./mvnw org.openrewrite.maven:rewrite-maven-plugin:4.35.1:init \
+  -Ddependencies=org.openrewrite.recipe:rewrite-testing-frameworks:1.27.0-SNAPSHOT \
+  -DactiveRecipes=org.openrewrite.java.testing.cucumber.UpgradeCucumber7x
+./mvnw rewrite:run
+./mvnw rewrite:remove
+----
+
+You should see similar output.
+
+[source,log]
+----
+[INFO] --- rewrite-maven-plugin:4.35.1:run (default-cli) @ migrate-cucumber-jvm ---
+[INFO] Using active recipe(s) [org.openrewrite.java.testing.cucumber.UpgradeCucumber7x]
+[INFO] Using active styles(s) []
+[INFO] Validating active recipes...
+[INFO] Project [migrate-cucumber-jvm] Resolving Poms...
+[INFO] Project [migrate-cucumber-jvm] Parsing Source Files
+[INFO] Running recipe(s)...
+[WARNING] Changes have been made to pom.xml by:
+[WARNING]     org.openrewrite.java.testing.cucumber.UpgradeCucumber7x
+[WARNING]         org.openrewrite.java.testing.cucumber.CucumberJava8ToJava
+[WARNING]             org.openrewrite.maven.ChangeDependencyGroupIdAndArtifactId: {oldGroupId=io.cucumber, oldArtifactId=cucumber-java8, newGroupId=io.cucumber, newArtifactId=cucumber-java}
+[WARNING]         org.openrewrite.java.testing.cucumber.CucumberToJunitPlatformSuite
+[WARNING]             org.openrewrite.maven.AddDependency: {groupId=org.junit.platform, artifactId=junit-platform-suite, version=1.9.x, onlyIfUsing=org.junit.platform.suite.api.*}
+[WARNING] Changes have been made to src/test/java/io/cucumber/examples/calculator/RunCucumberTest.java by:
+[WARNING]     org.openrewrite.java.testing.cucumber.UpgradeCucumber7x
+[WARNING]         org.openrewrite.java.testing.cucumber.CucumberToJunitPlatformSuite
+[WARNING]             org.openrewrite.java.testing.cucumber.CucumberAnnotationToSuite
+[WARNING] Changes have been made to src/test/java/io/cucumber/examples/calculator/RpnCalculatorSteps.java by:
+[WARNING]     org.openrewrite.java.testing.cucumber.UpgradeCucumber7x
+[WARNING]         org.openrewrite.java.testing.cucumber.CucumberJava8ToJava
+[WARNING]             org.openrewrite.java.testing.cucumber.CucumberJava8HookDefinitionToCucumberJava
+[WARNING]             org.openrewrite.java.testing.cucumber.CucumberJava8StepDefinitionToCucumberJava
+[WARNING]             org.openrewrite.java.ChangePackage: {oldPackageName=io.cucumber.java8, newPackageName=io.cucumber.java}
+[WARNING]         org.openrewrite.java.testing.cucumber.RegexToCucumberExpression
+[WARNING] Please review and commit the results.
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+----
+
+NOTE: Notice how each file change can be traced back to the individual recipes.
+
+== Evaluate the changes
+
+As we look through our modified project we can see quite some changes.
+
+=== pom.xml
+
+Our `pom.xml` file has undergone the expected changes to change the dependency from `cucumber-java8` to `cucumber-java`.
+We also gained the `junit-platform-suite` dependency, to replace the deprecated `io.cucumber.junit.platform.engine.Cucumber` annotation.
+
+[source,diff]
+----
+diff --git a/pom.xml b/pom.xml
+index adfc9a4..514d6c4 100644
+--- a/pom.xml
++++ b/pom.xml
+@@ -23,7 +24,7 @@
+                </dependency>
+                <dependency>
+                        <groupId>io.cucumber</groupId>
+-                       <artifactId>cucumber-java8</artifactId>
++                       <artifactId>cucumber-java</artifactId>
+                        <version>7.8.1</version>
+                        <scope>test</scope>
+                </dependency>
+@@ -33,5 +34,10 @@
+                        <version>7.8.1</version>
+                        <scope>test</scope>
+                </dependency>
++               <dependency>
++                       <groupId>org.junit.platform</groupId>
++                       <artifactId>junit-platform-suite</artifactId>
++                       <scope>test</scope>
++               </dependency>
+        </dependencies>
+ </project>
+----
+
+=== src/test/java/io/cucumber/examples/calculator/RunCucumberTest.java
+
+Our `RunCucumberTest` class has seen `@Cucumber` replaced with `@Suite` and `@SelectClasspathResource` from JUnit 5.9.x.
+This change stems from the https://github.com/openrewrite/rewrite-testing-frameworks/blob/main/src/main/java/org/openrewrite/java/testing/cucumber/CucumberAnnotationToSuite.java[CucumberAnnotationToSuite] recipe.
+
+[source,diff]
+----
+diff --git a/src/test/java/io/cucumber/examples/calculator/RunCucumberTest.java b/src/test/java/io/cucumber/examples/calculator/RunCucumberTest.java
+index 8ff5e68..4a0f600 100644
+--- a/src/test/java/io/cucumber/examples/calculator/RunCucumberTest.java
++++ b/src/test/java/io/cucumber/examples/calculator/RunCucumberTest.java
+@@ -1,7 +1,9 @@
+ package io.cucumber.examples.calculator;
+ 
+-import io.cucumber.junit.platform.engine.Cucumber;
++import org.junit.platform.suite.api.SelectClasspathResource;
++import org.junit.platform.suite.api.Suite;
+ 
+-@Cucumber
++@Suite
++@SelectClasspathResource("io/cucumber/examples/calculator")
+ public class RunCucumberTest {
+ }
+----
+
+=== src/test/java/io/cucumber/examples/calculator/RpnCalculatorSteps.java
+
+Finally, our step definitions in `RpnCalculatorSteps` no longer use the `cucumber-java8` lambdas, but instead use new generated methods with step definition annotations.
+`RpnCalculatorSteps` no longer implements `io.cucumber.java8.En`, and the no argument constructor has been removed.
+These changes stem from the https://github.com/openrewrite/rewrite-testing-frameworks/blob/main/src/main/java/org/openrewrite/java/testing/cucumber/CucumberJava8HookDefinitionToCucumberJava.java[CucumberJava8HookDefinitionToCucumberJava] and https://github.com/openrewrite/rewrite-testing-frameworks/blob/main/src/main/java/org/openrewrite/java/testing/cucumber/CucumberJava8StepDefinitionToCucumberJava.java[CucumberJava8StepDefinitionToCucumberJava] recipes.
+
+Also notice how the regular expression in `Given("^a calculator I just turned on$", () -> { ... });` as been replaced with a https://github.com/cucumber/cucumber-expressions[Cucumber expression] in `@Given("a calculator I just turned on")`.
+This change stems from the https://github.com/openrewrite/rewrite-testing-frameworks/blob/main/src/main/java/org/openrewrite/java/testing/cucumber/RegexToCucumberExpression.java[RegexToCucumberExpression] recipe.
+
+[source,diff]
+----
+diff --git a/src/test/java/io/cucumber/examples/calculator/RpnCalculatorSteps.java b/src/test/java/io/cucumber/examples/calculator/RpnCalculatorSteps.java
+index 4bdb4f5..37eb540 100644
+--- a/src/test/java/io/cucumber/examples/calculator/RpnCalculatorSteps.java
++++ b/src/test/java/io/cucumber/examples/calculator/RpnCalculatorSteps.java
+@@ -1,33 +1,43 @@
+ package io.cucumber.examples.calculator;
+ 
+-import io.cucumber.java8.En;
+-import io.cucumber.java8.Scenario;
++import io.cucumber.java.After;
++import io.cucumber.java.Before;
++import io.cucumber.java.en.Given;
++import io.cucumber.java.en.Then;
++import io.cucumber.java.en.When;
++import io.cucumber.java.Scenario;
+ 
+ import static org.assertj.core.api.Assertions.assertThat;
+ 
+-public class RpnCalculatorSteps implements En {
++public class RpnCalculatorSteps {
+ 
+        private RpnCalculator calc;
+ 
+-       public RpnCalculatorSteps() {
+-               Given("^a calculator I just turned on$", () -> {
+-                       calc = new RpnCalculator();
+-               });
+-
+-               When("I add {int} and {int}", (Integer arg1, Integer arg2) -> {
+-                       calc.push(arg1);
+-                       calc.push(arg2);
+-                       calc.push("+");
+-               });
++       @Before("not @foo")
++       public void before_tag_not__foo(io.cucumber.java.Scenario scenario) {
++               scenario.log("Runs before scenarios *not* tagged with @foo");
++       }
+ 
+-               Then("the result is {double}", (Double expected) -> assertThat(calc.value()).isEqualTo(expected));
++       @After
++       public void after(io.cucumber.java.Scenario scenario) {
++               scenario.log("After all");
++       }
+ 
+-               Before("not @foo", (Scenario scenario) -> {
+-                       scenario.log("Runs before scenarios *not* tagged with @foo");
+-               });
++       @Given("a calculator I just turned on")
++       public void a_calculator_i_just_turned_on() {
++               calc = new RpnCalculator();
++       }
+ 
+-               After((Scenario scenario) -> scenario.log("After all"));
++       @When("I add {int} and {int}")
++       public void i_add_int_and_int(Integer arg1, Integer arg2) {
++               calc.push(arg1);
++               calc.push(arg2);
++               calc.push("+");
++       }
+ 
++       @Then("the result is {double}")
++       public void the_result_is_double(Double expected) {
++               assertThat(calc.value()).isEqualTo(expected);
+        }
+ 
+ }
+----
+
+== Conclusion
+
+We have seen that users can now automatically migrate away from the `cucumber-java8` dependency and lambda based step definitions towards the `cucumber-java` dependency and annotation based step definitions.
+This should ease the adoption of Cucumber-JVM version 8 and above, and provide a clear path for any future breaking changes as well.
+
+There are still some https://github.com/openrewrite/rewrite-testing-frameworks/issues/264[limitations around method references and DataTables],
+but these can be migrated either manually, or with additional migration recipes.
+Perhaps you could even consider contributing those migration recipes yourself!
