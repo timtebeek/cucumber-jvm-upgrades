@@ -281,11 +281,11 @@ index adfc9a4..514d6c4 100644
                         <groupId>io.cucumber</groupId>
 -                       <artifactId>cucumber-java8</artifactId>
 +                       <artifactId>cucumber-java</artifactId>
-                        <version>7.8.1</version>
+                        <version>${cucumber-jvm.version}</version>
                         <scope>test</scope>
                 </dependency>
 @@ -33,5 +34,10 @@
-                        <version>7.8.1</version>
+                        <version>${cucumber-jvm.version}</version>
                         <scope>test</scope>
                 </dependency>
 +               <dependency>
