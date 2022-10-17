@@ -10,12 +10,15 @@ but in the meantime users are https://github.com/cucumber/docs/pull/783[recommen
 Such breaking changes are typically a source of work or even problems for users, and can lead to delayed adoption or even fragmentation. 
 
 At a recent client we also faced this challenge of having to migrate ~20 projects from `cucumber-java8` lambda based step definitions to `cucumber-java` annotation based step definitions.
-Migrating these step definitions by hand did not seem very appealing, and error prone at best.
+Migrating these step definitions by hand did not seem very appealing, and fault-prone at best.
 As I recently gained some experience developing https://docs.openrewrite.org/[OpenRewrite recipes], I instead set out to automate this migration to Cucumber 7.x and beyond for all users of `cucumber-java8`.
+
+> OpenRewrite enables large-scale distributed source code refactoring for framework migrations, vulnerability patches, and API migrations with an early focus on the Java language.
 
 == Example project
 
 Let's start with defining an example project, which we will use to highlight the changes made through our automated migration recipes.
+We'll use Maven in this example, but https://docs.openrewrite.org/getting-started/getting-started[Gradle works just as well].
 
 To start we have a `pom.xml` file, using Maven 3.8.6, Java 17, Spring Boot 2.7.4, JUnit 5.9.1 and Cucumber-JVM 7.8.1.
 
@@ -194,7 +197,7 @@ This all works; when we run `RunCucumberTest`, it discovers the tests in `rnpcal
 
 == Run Migration Recipes
 
-As we said in our outline, we want to migrate away from the `cucumber-java8` lambda based step definitions; towards the `cucumber-java` annotation based step definitions.
+As we said in our outline, we want to migrate away from the `cucumber-java8` lambda based step definitions towards the `cucumber-java` annotation based step definitions.
 To facilitate this migration I've developed https://github.com/openrewrite/rewrite-testing-frameworks/blob/main/src/main/resources/META-INF/rewrite/cucumber.yml#L18[a number of OpenRewrite Cucumber migration recipes].
 
 
