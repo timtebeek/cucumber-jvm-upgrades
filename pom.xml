@@ -6,12 +6,13 @@
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
 		<version>2.7.4</version>
-		<relativePath /> <!-- lookup parent from repository -->
+		<relativePath />
 	</parent>
 	<groupId>com.github.timtebeek</groupId>
 	<artifactId>cucumber-jvm-upgrades</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
 	<properties>
+		<cucumber-jvm.version>7.8.1</cucumber-jvm.version>
 		<java.version>17</java.version>
 		<junit-jupiter.version>5.9.1</junit-jupiter.version>
 	</properties>
@@ -24,13 +25,13 @@
 		<dependency>
 			<groupId>io.cucumber</groupId>
 			<artifactId>cucumber-java8</artifactId>
-			<version>7.8.1</version>
+			<version>${cucumber-jvm.version}</version>
 			<scope>test</scope>
 		</dependency>
 		<dependency>
 			<groupId>io.cucumber</groupId>
 			<artifactId>cucumber-junit-platform-engine</artifactId>
-			<version>7.8.1</version>
+			<version>${cucumber-jvm.version}</version>
 			<scope>test</scope>
 		</dependency>
 	</dependencies>
