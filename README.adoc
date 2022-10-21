@@ -2,7 +2,7 @@
 
 Getting involved in Open Source software can be fun, as it gives you a glimpse into the future for upcoming versions.
 One project I've been following over the past couple of years is https://github.com/cucumber/cucumber-jvm[Cucumber for the Java Virtual Machine].
-There's a noticable https://github.com/cucumber/cucumber-jvm/issues/2174[upcoming change that will remove `cucumber-java8`],
+There's a noticeable https://github.com/cucumber/cucumber-jvm/issues/2174[upcoming change that will remove `cucumber-java8`],
 which will certainly affect users of that dependency.
 
 Some work has been put into a https://github.com/cucumber/cucumber-jvm/issues/2279[possible replacement in the form of `cucumber-java-lambda`],
