@@ -32,7 +32,7 @@ To start we have a `pom.xml` file, using Maven 3.8.6, Java 17, Spring Boot 2.7.4
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>2.7.4</version>
+		<version>2.7.5</version>
 		<relativePath />
 	</parent>
 	<groupId>com.github.timtebeek</groupId>
@@ -201,25 +201,14 @@ This all works; when we run `RunCucumberTest`, it discovers the tests in `rnpcal
 As we said in our outline, we want to migrate away from the `cucumber-java8` lambda based step definitions towards the `cucumber-java` annotation based step definitions.
 To facilitate this migration I've developed https://github.com/openrewrite/rewrite-testing-frameworks/blob/main/src/main/resources/META-INF/rewrite/cucumber.yml#L18[a number of OpenRewrite Cucumber migration recipes].
 
-
-As we're still https://github.com/openrewrite/rewrite-testing-frameworks/compare/v1.29.0...main[waiting on a 1.30.0+ release], we first need to install the rewrite-testing-frameworks module locally.
-
-.Install the rewrite-testing-frameworks module locally.
-[source,bash]
-----
-git clone git@github.com:openrewrite/rewrite-testing-frameworks.git;
-cd rewrite-testing-frameworks;
-./gradlew publishToMavenLocal;
-----
-
-To run the migration recipes we then need to add the OpenRewrite plugin to our project `pom.xml` file, with the respective module dependency, before running the plugin itself.
+To run the migration recipes we need to add the OpenRewrite plugin to our project `pom.xml` file, with the respective module dependency, before running the plugin itself.
 
 .Run the cucumber-jvm migration recipes.
 [source,bash]
 ----
 cd cucumber-jvm-upgrades/;
-./mvnw org.openrewrite.maven:rewrite-maven-plugin:4.35.1:init \
-  -Ddependencies=org.openrewrite.recipe:rewrite-testing-frameworks:1.27.0-SNAPSHOT \
+./mvnw org.openrewrite.maven:rewrite-maven-plugin:4.36.0:init \
+  -Ddependencies=org.openrewrite.recipe:rewrite-testing-frameworks:1.30.0 \
   -DactiveRecipes=org.openrewrite.java.testing.cucumber.UpgradeCucumber7x
 ./mvnw rewrite:run rewrite:remove
 ----
@@ -228,7 +217,7 @@ You should see similar output.
 
 [source,log]
 ----
-[INFO] --- rewrite-maven-plugin:4.35.1:run (default-cli) @ migrate-cucumber-jvm ---
+[INFO] --- rewrite-maven-plugin:4.36.0:run (default-cli) @ migrate-cucumber-jvm ---
 [INFO] Using active recipe(s) [org.openrewrite.java.testing.cucumber.UpgradeCucumber7x]
 [INFO] Using active styles(s) []
 [INFO] Validating active recipes...
